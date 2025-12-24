@@ -1,4 +1,4 @@
-# Use ESP32 to control Chameleon devices over BLE
+# Use ESP32 to control Chameleon devices over BLE (Bluethooth)
 
 A modularized, asynchronous firmware for ESP32 designed to interface with the **Chameleon Ultra** RFID research tool via BLE. This project provides a robust serial-to-BLE bridge, implementing the Chameleon Ultra's binary protocol for remote card scanning and device management.
 
@@ -40,14 +40,17 @@ The firmware accepts the following commands via the Serial Monitor (115200 baud)
 | :--- | :--- |
 | `discover` | Scans for nearby Chameleon Ultra devices. |
 | `pair` | Initiates connection and bonding with the discovered or saved device. |
+| `pin 123456` | This command would enable pin 123456 on reset Chameleon. |
 | `forget` | Clears the bonded device address from NVS and deletes local bonds. |
 | `info` | Requests device firmware version. |
+| `scan` | Triggers both High Frequency and Low Frequency tag search. |
 | `scan hf` | Triggers a High Frequency (13.56MHz) tag search. |
 | `scan lf` | Triggers a Low Frequency (125kHz) tag search. |
 | `mode reader` | Switches the Chameleon Ultra into Reader mode. |
 | `mode tag` | Switches the Chameleon Ultra into Tag Emulation mode. |
 | `drop` | Disconnects the current BLE link. |
 | `send <txt>` | Sends a raw text command to the device. |
+| `clear bonds` | Reset bluetooth devices paired with Chamaleon. |
 
 ## Project Structure
 
@@ -66,6 +69,7 @@ Responses are automatically parsed into human-readable formats in the serial log
 ## About PivotChip
 
 Visit PivotChip Security's website for a wide selection of pentesting devices for cybersecurity professionals.
+
 https://pivotchip.ca
 
 ## License
