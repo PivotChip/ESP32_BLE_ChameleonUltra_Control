@@ -119,6 +119,9 @@ void setup() {
   Serial.begin(115200);
   while (!Serial) {}
 
+  // Configure Boot Button (GPIO 0)
+  pinMode(0, INPUT_PULLUP);
+
   initBLE();
   logOutput("Ready. Commands: discover | pair | forget | scan | scan hf | scan lf | info | mode reader | drop | pin_enable 123456 | clear bonds");
   
@@ -131,6 +134,13 @@ void setup() {
 
 void loop() {
   if (Serial.available()) processCommand(Serial.readStringUntil('\n'));
+
+  // Check Boot Button (Active LOW)
+  if (digitalRead(0) == LOW) {
+      logOutput("[Button] Boot Key Pressed -> Triggering Scan...");
+      processCommand("scan"); 
+      delay(500); // Debounce to prevent double triggering
+  }
 
   switch (currentState) {
     
