@@ -13,4 +13,8 @@ void startPair();
 void savePairedDevice(const NimBLEAddress& addr);
 void clearPairedDevice();
 
+// --- NEW PIN FUNCTIONS ---
+void savePinConfig(uint32_t pin, bool enable);
+void updateSecuritySettings(); 
+
 #endif

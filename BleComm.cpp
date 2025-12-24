@@ -12,22 +12,6 @@ NimBLEUUID charUUID_TX("6E400003-B5A3-F393-E0A9-E50E24DCCA9E");
 // Protocol Constants
 #define CHAMELEON_SOF 0x11
 
-// Commands
-#define CMD_GET_VERSION     1000
-#define CMD_CHANGE_MODE     1001
-#define CMD_SCAN_14443A     2000
-#define CMD_SCAN_125K       3000
-
-// Status Codes
-#define STATUS_SUCCESS      0x0000
-#define STATUS_GEN_ERR      0x0001 
-#define STATUS_LF_OK        0x0040 
-#define STATUS_LF_ERR_1     0x0041 
-#define STATUS_LF_ERR_2     0x0042 
-#define STATUS_HF_ERR       0x0065 
-#define STATUS_MODE_ERR     0x0066 
-#define STATUS_OK_CUSTOM    0x0068 
-
 // Parser Globals
 uint8_t rxBuffer[512];
 uint16_t rxIndex = 0;
@@ -203,30 +187,55 @@ void sendUltraCommand(uint16_t cmd, const uint8_t* payload, uint16_t payloadLen)
   // ATOMIC OUTPUT FOR TX
   String logMsg = ">> [TX Cmd " + String(cmd) + "]: " + formatHex(frame, totalLen);
   logMsg += res ? " (OK)" : " (Fail)";
-  logOutput(logMsg);
+  logOutput(logMsg, true);
 
   delete[] frame;
 }
 
 void setDeviceMode(uint8_t mode) {
-    logOutput("Command: Set Device Mode to " + String(mode == MODE_READER ? "READER" : "TAG"));
+    logOutput("Command: Set Device Mode to " + String(mode == MODE_READER ? "READER" : "TAG"), true);
     uint8_t data[] = {mode}; 
     sendUltraCommand(CMD_CHANGE_MODE, data, 1);
 }
 
+// --- NEW: PIN Implementation ---
+void setChameleonPIN(uint32_t pin) {
+    char pinStr[7];
+    // Format as 6-byte ASCII with leading zeros (e.g., "123456")
+    snprintf(pinStr, sizeof(pinStr), "%06u", pin);
+    logOutput("Command: Setting PIN on Device to " + String(pinStr));
+    sendUltraCommand(CMD_BLE_SET_PAIRING_KEY, (uint8_t*)pinStr, 6);
+}
+
+void enableChameleonPairing(bool enable) {
+    logOutput("Command: " + String(enable ? "Enabling" : "Disabling") + " PIN Pairing on Device");
+    uint8_t data[] = { (uint8_t)(enable ? 0x01 : 0x00) };
+    sendUltraCommand(CMD_BLE_SET_PAIRING_ENABLE, data, 1);
+}
+
+void clearChameleonBonds() {
+    logOutput("Command: Clearing Bonds on Device");
+    sendUltraCommand(CMD_BLE_DELETE_ALL_BONDS, nullptr, 0);
+}
+
+void saveSettings() {
+    logOutput("Command: Saving Settings to Device Flash...");
+    sendUltraCommand(CMD_SAVE_SETTINGS, nullptr, 0);
+}
+
 void sendText(const String& s) {
   if (s.indexOf("hf search") >= 0) {
-    logOutput("Mapping 'hf search' to Binary CMD_SCAN_14443A...");
+    logOutput("Mapping 'hf search' to Binary CMD_SCAN_14443A...", true);
     sendUltraCommand(CMD_SCAN_14443A, nullptr, 0);
     return;
   }
   if (s.indexOf("lf search") >= 0) {
-    logOutput("Mapping 'lf search' to Binary CMD_SCAN_125K...");
+    logOutput("Mapping 'lf search' to Binary CMD_SCAN_125K...", true);
     sendUltraCommand(CMD_SCAN_125K, nullptr, 0);
     return;
   }
   if (s.indexOf("info") >= 0) {
-    logOutput("Mapping 'info' to Binary CMD_GET_VERSION...");
+    logOutput("Mapping 'info' to Binary CMD_GET_VERSION...", true);
     sendUltraCommand(CMD_GET_VERSION, nullptr, 0);
     return;
   }
@@ -248,7 +257,7 @@ void sendText(const String& s) {
 }
 
 bool setupService() {
-  logOutput("Step 4: Discovering Services...");
+  logOutput("Step 4: Discovering Services...", true);
   NimBLERemoteService* svc = pClient->getService(serviceUUID);
   if (!svc) {
     logOutput(" -> Service not found.");
@@ -265,10 +274,10 @@ bool setupService() {
   
   String props = "";
   if (pRemoteCharacteristicTX->canNotify()) props += "Notify ";
-  logOutput(" -> TX Props: " + props);
+  logOutput(" -> TX Props: " + props, true);
 
   if (!pRemoteCharacteristicTX->canNotify()) {
-      logOutput(" -> ERROR: TX char does not support Notify.");
+      logOutput(" -> ERROR: TX char does not support Notify.", true);
       return false;
   }
   
@@ -278,7 +287,7 @@ bool setupService() {
 bool enableNotifications(bool& subOk) {
     NimBLERemoteDescriptor* pDesc = pRemoteCharacteristicTX->getDescriptor(NimBLEUUID((uint16_t)0x2902));
     if (!pDesc) {
-        logOutput("     Debug: Error - CCCD Descriptor not found!");
+        logOutput("     Debug: Error - CCCD Descriptor not found!", true);
         subOk = false;
         return false; 
     }
@@ -286,35 +295,35 @@ bool enableNotifications(bool& subOk) {
     String mtu = String(pClient->getMTU());
     bool isEnc = pClient->getConnInfo().isEncrypted();
     bool isBond = pClient->getConnInfo().isBonded();
-    logOutput("     Debug: MTU=" + mtu + " Enc=" + String(isEnc) + " Bond=" + String(isBond));
+    logOutput("     Debug: MTU=" + mtu + " Enc=" + String(isEnc) + " Bond=" + String(isBond), true);
 
     // CHECK STATE
     std::string val = pDesc->readValue();
     uint16_t currentCCCD = 0;
     if (val.length() >= 2) {
         currentCCCD = (uint8_t)val[0] | ((uint8_t)val[1] << 8);
-        logOutput("     Debug: Current CCCD: " + String(currentCCCD));
+        logOutput("     Debug: Current CCCD: " + String(currentCCCD), true);
     }
 
     if (currentCCCD == 1 || currentCCCD == 2) {
-       logOutput("     Debug: Already Enabled. Linking callback...");
+       logOutput("     Debug: Already Enabled. Linking callback...", true);
        pRemoteCharacteristicTX->subscribe(true, notifyCB, false); 
        subOk = true;
        return true;
     }
 
     // ATTEMPT
-    logOutput("     Debug: Attempting Standard Subscribe...");
+    logOutput("     Debug: Attempting Standard Subscribe...", true);
     
     if (pRemoteCharacteristicTX->subscribe(true, notifyCB, true)) {
-        logOutput("     Debug: Subscribe Success (API)!");
+        logOutput("     Debug: Subscribe Success (API)!", true);
         
         delay(200);
         val = pDesc->readValue();
         if (val.length() >= 2) {
             uint16_t verifyCCCD = (uint8_t)val[0] | ((uint8_t)val[1] << 8);
             if (verifyCCCD == 1 || verifyCCCD == 2) {
-                logOutput("     Debug: [VERIFY] CCCD is enabled (" + String(verifyCCCD) + "). Success.");
+                logOutput("     Debug: [VERIFY] CCCD is enabled (" + String(verifyCCCD) + "). Success.", true);
                 pRemoteCharacteristicTX->subscribe(true, notifyCB, false);
                 subOk = true;
                 return true;
@@ -322,34 +331,34 @@ bool enableNotifications(bool& subOk) {
         }
     }
     
-    logOutput("     Debug: Subscribe Failed. Stack Error: " + String(pClient->getLastError()));
+    logOutput("     Debug: Subscribe Failed. Stack Error: " + String(pClient->getLastError()), true);
     
     // MANUAL WRITE FALLBACK
-    logOutput("     Debug: Trying Manual Descriptor Write (01 00, Resp)...");
+    logOutput("     Debug: Trying Manual Descriptor Write (01 00, Resp)...", true);
     uint8_t enableVal[] = {0x01, 0x00};
     
     if (pDesc->writeValue(enableVal, 2, true)) {
-        logOutput("     Debug: Manual Write Success! Linking callback...");
+        logOutput("     Debug: Manual Write Success! Linking callback...", true);
         pRemoteCharacteristicTX->subscribe(true, notifyCB, false); 
         subOk = true;
         return true;
     }
 
-    logOutput("     Debug: Manual Write Failed. Verifying if it stuck...");
+    logOutput("     Debug: Manual Write Failed. Verifying if it stuck...", true);
     delay(500);
     
     val = pDesc->readValue();
     if (val.length() >= 2) {
         uint16_t verifyCCCD = (uint8_t)val[0] | ((uint8_t)val[1] << 8);
         if (verifyCCCD == 1 || verifyCCCD == 2) {
-            logOutput("     Debug: OVERRIDE! CCCD is enabled (" + String(verifyCCCD) + "). Success.");
+            logOutput("     Debug: OVERRIDE! CCCD is enabled (" + String(verifyCCCD) + "). Success.", true);
             pRemoteCharacteristicTX->subscribe(true, notifyCB, false);
             subOk = true;
             return true;
         }
     }
     
-    logOutput("     Debug: Subscribe truly failed. Retrying...");
+    logOutput("     Debug: Subscribe truly failed. Retrying...", true);
     subOk = false;
     return false; 
 }

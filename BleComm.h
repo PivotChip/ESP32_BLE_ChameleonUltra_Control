@@ -16,6 +16,15 @@ extern NimBLERemoteCharacteristic* pRemoteCharacteristicTX;
 #define CMD_SCAN_14443A     2000
 #define CMD_SCAN_125K       3000
 
+// PIN COMMANDS
+#define CMD_BLE_SET_PAIRING_KEY     1030
+#define CMD_BLE_GET_PAIRING_KEY     1031
+#define CMD_BLE_SET_PAIRING_ENABLE  1037
+#define CMD_BLE_GET_PAIRING_ENABLE  1036
+#define CMD_BLE_DELETE_ALL_BONDS    1032
+#define CMD_FACTORY_RESET           1020
+#define CMD_SAVE_SETTINGS           1013
+
 // Status Codes
 #define STATUS_SUCCESS      0x0000
 #define STATUS_GEN_ERR      0x0001 
@@ -34,11 +43,15 @@ extern NimBLERemoteCharacteristic* pRemoteCharacteristicTX;
 void sendText(const String& s);
 bool setupService(); 
 bool enableNotifications(bool& subOk);
+bool triggerSecurityViaRead();
 void sendUltraCommand(uint16_t cmd, const uint8_t* payload = nullptr, uint16_t payloadLen = 0);
 void setDeviceMode(uint8_t mode);
 
-// FIX: Added missing declaration
-bool triggerSecurityViaRead();
+// PIN HELPERS
+void setChameleonPIN(uint32_t pin);
+void enableChameleonPairing(bool enable);
+void clearChameleonBonds();
+void saveSettings();
 
 // Parser State
 extern uint8_t rxBuffer[512];

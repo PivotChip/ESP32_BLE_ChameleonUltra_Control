@@ -5,6 +5,10 @@ NimBLEAddress storedAddress;
 bool hasStoredAddress = false;
 static String targetNameCache = ""; 
 
+// --- PIN GLOBALS ---
+uint32_t userBLEPin = 123456;
+bool pinPairingEnabled = false;
+
 static void scanCompleteCB(NimBLEScanResults results) {
   (void)results;
   if (currentState == ST_SCANNING) {
@@ -33,7 +37,7 @@ class MyScanCallbacks : public NimBLEScanCallbacks {
 
       if (hasStoredAddress && advertisedDevice->getAddress() == storedAddress) {
         logOutput(" *** FOUND SAVED DEVICE: " + addrStr + " (RSSI: " + String(rssi) + ") ***");
-        logOutput(" -> Auto-connecting to paired device...");
+        logOutput(" -> Auto-connecting to paired device...", true);
         
         if (targetDevice) delete targetDevice;
         targetDevice = new NimBLEAdvertisedDevice(*advertisedDevice);
@@ -49,7 +53,7 @@ class MyScanCallbacks : public NimBLEScanCallbacks {
 
       if (match) {
         logOutput(" *** FOUND: " + (name.isEmpty() ? String("Device") : name) + 
-                  " [" + addrStr + "] (RSSI: " + String(rssi) + ") ***");
+                  " [" + addrStr + "] (RSSI: " + String(rssi) + ") ***", true);
 
         if (targetDevice) delete targetDevice;
         targetDevice = new NimBLEAdvertisedDevice(*advertisedDevice);
@@ -67,7 +71,7 @@ class MyScanCallbacks : public NimBLEScanCallbacks {
       else if (advertisedDevice->haveServiceUUID() && advertisedDevice->isAdvertisingService(serviceUUID)) match = true;
 
       if (match) {
-        logOutput(" *** TARGET RE-ACQUIRED: " + addrStr + " (RSSI: " + String(rssi) + ") ***");
+        logOutput(" *** TARGET RE-ACQUIRED: " + addrStr + " (RSSI: " + String(rssi) + ") ***", true);
         
         if (!connectable) {
            logOutput("     WARNING: Target says NOT CONNECTABLE. Ignoring.");
@@ -87,7 +91,7 @@ class MyScanCallbacks : public NimBLEScanCallbacks {
 
 class MyClientCallback : public NimBLEClientCallbacks {
   void onConnect(NimBLEClient* pclient) override {
-    logOutput(" -> [CB] Connected.");
+    logOutput(" -> [CB] Connected.", true);
   }
 
   void onDisconnect(NimBLEClient* pclient, int reason) override {
@@ -104,12 +108,17 @@ class MyClientCallback : public NimBLEClientCallbacks {
   }
 
   void onPassKeyEntry(NimBLEConnInfo& connInfo) override {
-    logOutput(" -> [SEC] Passkey Requested. Injecting: 123456");
-    NimBLEDevice::injectPassKey(connInfo, 123456);
+    if (pinPairingEnabled) {
+        logOutput(" -> [SEC] PIN Requested. Injecting User PIN: " + String(userBLEPin), true);
+        NimBLEDevice::injectPassKey(connInfo, userBLEPin);
+    } else {
+        logOutput(" -> [SEC] PIN Requested (Legacy). Injecting: 123456", true);
+        NimBLEDevice::injectPassKey(connInfo, 123456);
+    }
   }
 
   void onConfirmPasskey(NimBLEConnInfo& connInfo, uint32_t pass_key) override {
-    logOutput(" -> [SEC] Confirm Passkey: " + String(pass_key));
+    logOutput(" -> [SEC] Confirm Passkey: " + String(pass_key), true);
     NimBLEDevice::injectConfirmPasskey(connInfo, true);
   }
 
@@ -161,30 +170,65 @@ void clearPairedDevice() {
   }
 }
 
+// --- NEW PIN MANAGEMENT ---
+void savePinConfig(uint32_t pin, bool enable) {
+    preferences.begin("chameleon", false);
+    preferences.putUInt("ble_pin", pin);
+    preferences.putBool("pin_mode", enable);
+    preferences.end();
+    
+    userBLEPin = pin;
+    pinPairingEnabled = enable;
+    
+    logOutput(" -> [NVS] PIN Config Saved: " + String(pin) + " (Enabled: " + String(enable) + ")");
+}
+
+void updateSecuritySettings() {
+    // Dynamic Reconfiguration of Security
+    if (pinPairingEnabled) {
+        logOutput(" -> Security Mode: PIN (MITM + Keyboard Only)");
+        NimBLEDevice::setSecurityAuth(true, true, true); 
+        NimBLEDevice::setSecurityIOCap(BLE_HS_IO_KEYBOARD_ONLY);
+    } else {
+        logOutput(" -> Security Mode: Just Works (No MITM + No I/O)");
+        NimBLEDevice::setSecurityAuth(true, false, true); 
+        NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
+    }
+}
+
 void initBLE() {
   preferences.begin("chameleon", false);
+  
+  // Load Address
   String savedStr = preferences.getString("bonded_addr", "");
   if (savedStr.length() > 0) {
     uint8_t savedType = preferences.getUChar("bonded_type", 1); 
     storedAddress = NimBLEAddress(savedStr.c_str(), savedType);
     hasStoredAddress = true;
-    logOutput("Boot: Found saved paired device [" + savedStr + "]");
+    logOutput("Boot: Found saved paired device [" + savedStr + "]", true);
   } else {
-    logOutput("Boot: No saved paired device found.");
+    logOutput("Boot: No saved paired device found.", true);
   }
+  
+  // Load PIN Settings
+  userBLEPin = preferences.getUInt("ble_pin", 123456);
+  pinPairingEnabled = preferences.getBool("pin_mode", false);
+  
   preferences.end();
 
   NimBLEDevice::init("ESP32_Chameleon");
   NimBLEDevice::setPower(ESP_PWR_LVL_P9); 
 
-  // JUST WORKS: Bond=True, MITM=False, SC=True
-  NimBLEDevice::setSecurityAuth(true, false, true); 
-  NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
+  // Apply Security Logic
+  updateSecuritySettings();
 
   pClient = NimBLEDevice::createClient();
   pClient->setClientCallbacks(&clientCallbacks, false);
   pClient->setConnectTimeout(20);
   pClient->setConnectionParams(100, 200, 0, 800);
+  
+  if (pinPairingEnabled) logOutput("Boot: PIN Pairing ENABLED [" + String(userBLEPin) + "]", true);
+  else logOutput("Boot: PIN Pairing DISABLED (Just Works)", true);
 }
 
 void triggerReScan() {

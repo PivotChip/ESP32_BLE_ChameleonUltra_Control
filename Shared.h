@@ -10,6 +10,8 @@
 #ifndef SHARED_H
 #define SHARED_H
 
+#define DEBUG_MODE true
+
 #include <Arduino.h>
 #include <NimBLEDevice.h>
 #include <Preferences.h>
@@ -37,6 +39,10 @@ extern const int MAX_RETRIES;
 extern volatile bool authInProgress;
 extern volatile unsigned long lastSecurityTime;
 
+// --- PIN PAIRING GLOBALS ---
+extern uint32_t userBLEPin;        // Default 123456
+extern bool pinPairingEnabled;     // Default false (Just Works)
+
 extern NimBLEClient* pClient;
 extern NimBLEAdvertisedDevice* targetDevice;
 
@@ -44,6 +50,6 @@ extern NimBLEUUID serviceUUID;
 extern NimBLEUUID charUUID_RX;
 extern NimBLEUUID charUUID_TX;
 
-void logOutput(const String& msg);
+void logOutput(const String& msg, bool debug_bypass = false);
 
 #endif
