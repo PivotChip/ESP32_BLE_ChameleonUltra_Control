@@ -62,6 +62,7 @@ The firmware accepts the following commands via the Serial Monitor (115200 baud)
 ## Protocol Details
 
 The implementation follows the Chameleon Ultra binary frame structure:
+
 `[SOF] [LRC1] [CMD_H] [CMD_L] [STAT_H] [STAT_L] [LEN_H] [LEN_L] [LRC2] + [DATA] + [LRC3]`
 
 Responses are automatically parsed into human-readable formats in the serial logs, providing instant feedback on tag UIDs and hardware status codes.
