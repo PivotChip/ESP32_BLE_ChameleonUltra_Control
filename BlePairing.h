@@ -1,3 +1,8 @@
+/*
+ * Chameleon Ultra - Bluetooth BLE control from ESP32 device
+ * by PivotChip Security
+ */
+
 #ifndef BLE_PAIRING_H
 #define BLE_PAIRING_H
 
@@ -12,8 +17,7 @@ void triggerReScan();
 void startPair();
 void savePairedDevice(const NimBLEAddress& addr);
 void clearPairedDevice();
-
-// --- NEW PIN FUNCTIONS ---
+void connectToScannedDevice(int index);
 void savePinConfig(uint32_t pin, bool enable);
 void updateSecuritySettings(); 
 

@@ -1,3 +1,8 @@
+/*
+ * Chameleon Ultra - Bluetooth BLE control from ESP32 device
+ * by PivotChip Security
+ */
+
 #include "BlePairing.h"
 
 Preferences preferences;
@@ -10,61 +15,43 @@ uint32_t userBLEPin = 123456;
 bool pinPairingEnabled = false;
 
 static void scanCompleteCB(NimBLEScanResults results) {
-  (void)results;
-  if (currentState == ST_SCANNING) {
-    logOutput("--- Scan Timeout ---");
-    currentState = ST_IDLE;
-  } 
-  else if (currentState == ST_RESCAN_TARGET) {
-    if (targetDevice == nullptr) {
-       logOutput("--- Auto-scan timeout: Device not found ---");
-       currentState = ST_IDLE;
-    } else {
-       currentState = ST_IDLE; 
-    }
+  logOutput("\nID | RSSI | Con | Address           | Name");
+  for (int i = 0; i < results.getCount(); i++) {
+    const NimBLEAdvertisedDevice* d = results.getDevice(i);
+    // Mark Connectable status: [ ] = Yes, [X] = No
+    const char* connStr = d->isConnectable() ? "[ ]" : "[X]";
+    char line[128];
+    snprintf(line, sizeof(line), "%2d | %4d | %s | %s | %s", 
+              i, d->getRSSI(), connStr, d->getAddress().toString().c_str(), d->getName().c_str());
+    logOutput(String(line));
   }
+  logOutput("--- Scan Complete ---");
+  currentState = ST_IDLE;
 }
 
 class MyScanCallbacks : public NimBLEScanCallbacks {
   void onResult(const NimBLEAdvertisedDevice* advertisedDevice) override {
-    String name = advertisedDevice->haveName() ? advertisedDevice->getName().c_str() : "";
+    String name = advertisedDevice->haveName() ? advertisedDevice->getName().c_str() : "Unknown";
     String addrStr = advertisedDevice->getAddress().toString().c_str();
     bool connectable = advertisedDevice->isConnectable();
     int rssi = advertisedDevice->getRSSI();
 
     if (currentState == ST_SCANNING) {
-      if (!connectable) return; 
+      // List ALL connectable devices
+      //if (!connectable) return; 
 
-      if (hasStoredAddress && advertisedDevice->getAddress() == storedAddress) {
-        logOutput(" *** FOUND SAVED DEVICE: " + addrStr + " (RSSI: " + String(rssi) + ") ***");
-        logOutput(" -> Auto-connecting to paired device...", true);
-        
-        if (targetDevice) delete targetDevice;
-        targetDevice = new NimBLEAdvertisedDevice(*advertisedDevice);
-        
-        NimBLEDevice::getScan()->stop();
-        currentState = ST_CONNECT_ATTEMPT;
-        stateTimer = millis();
-        return;
-      }
+      // Calculate Index (Count includes this new one)
+      //int index = NimBLEDevice::getScan()->getResults().getCount() - 1;
 
-      bool match = (name.indexOf("Chameleon") >= 0) || (name.indexOf("Ultra") >= 0) ||
-                   (advertisedDevice->haveServiceUUID() && advertisedDevice->isAdvertisingService(serviceUUID));
+      // Check for Chameleon characteristics for highlighting
+      //bool isChameleon = (name.indexOf("Chameleon") >= 0) || (name.indexOf("Ultra") >= 0) ||
+      //             (advertisedDevice->haveServiceUUID() && advertisedDevice->isAdvertisingService(serviceUUID));
+      
+      //String prefix = isChameleon ? "[-->] " : "[   ] ";
+      //String saved = (hasStoredAddress && advertisedDevice->getAddress() == storedAddress) ? " [SAVED]" : "";
 
-      if (match) {
-        logOutput(" *** FOUND: " + (name.isEmpty() ? String("Device") : name) + 
-                  " [" + addrStr + "] (RSSI: " + String(rssi) + ") ***", true);
-
-        if (targetDevice) delete targetDevice;
-        targetDevice = new NimBLEAdvertisedDevice(*advertisedDevice);
-        targetNameCache = name; 
-        
-        NimBLEDevice::getScan()->stop();
-        currentState = ST_IDLE;
-        logOutput(" -> Ready. Type 'pair' to connect.");
-      }
-    }
-    else if (currentState == ST_RESCAN_TARGET) {
+      //logOutput(prefix + String(index) + ": " + name + " (" + addrStr + ") " + String(rssi) + "dBm" + saved);
+    } else if (currentState == ST_RESCAN_TARGET) {
       bool match = false;
       if (hasStoredAddress && advertisedDevice->getAddress() == storedAddress) match = true;
       else if (targetNameCache.length() > 0 && name.indexOf(targetNameCache) >= 0) match = true;
@@ -108,13 +95,8 @@ class MyClientCallback : public NimBLEClientCallbacks {
   }
 
   void onPassKeyEntry(NimBLEConnInfo& connInfo) override {
-    if (pinPairingEnabled) {
-        logOutput(" -> [SEC] PIN Requested. Injecting User PIN: " + String(userBLEPin), true);
-        NimBLEDevice::injectPassKey(connInfo, userBLEPin);
-    } else {
-        logOutput(" -> [SEC] PIN Requested (Legacy). Injecting: 123456", true);
-        NimBLEDevice::injectPassKey(connInfo, 123456);
-    }
+    logOutput(" -> [SEC] PIN Requested. Injecting PIN: " + String(userBLEPin), true);
+    NimBLEDevice::injectPassKey(connInfo, userBLEPin);
   }
 
   void onConfirmPasskey(NimBLEConnInfo& connInfo, uint32_t pass_key) override {
@@ -260,7 +242,14 @@ void startScan() {
   scan->setWindow(100);
 
   currentState = ST_SCANNING;
-  scan->start(10000, scanCompleteCB, false);
+  scan->start(10000, false);
+
+  while (scan->isScanning()) {
+      delay(100);
+  }
+  
+  NimBLEScanResults results = scan->getResults();
+  scanCompleteCB(results);
 }
 
 void startPair() {
@@ -271,4 +260,27 @@ void startPair() {
   logOutput("--- Starting Pair/Connect Sequence ---");
   retryCount = 0;
   triggerReScan();
+  currentState = ST_RESCAN_TARGET;
+}
+
+void connectToScannedDevice(int index) {
+    NimBLEScanResults results = NimBLEDevice::getScan()->getResults();
+    if (index < 0 || index >= results.getCount()) {
+        logOutput("Error: Invalid device index.");
+        return;
+    }
+
+    const NimBLEAdvertisedDevice* dev = results.getDevice(index);
+    logOutput("Selected: " + String(dev->getAddress().toString().c_str()));
+    
+    if (targetDevice) delete targetDevice;
+    targetDevice = new NimBLEAdvertisedDevice(*dev);
+    
+    // Stop any ongoing scan
+    NimBLEDevice::getScan()->stop();
+    
+    logOutput("--- Initiating Direct Connection ---");
+    retryCount = 0;
+    currentState = ST_CONNECT_ATTEMPT;
+    stateTimer = millis();
 }

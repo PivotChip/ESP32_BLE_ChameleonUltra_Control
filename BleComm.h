@@ -1,3 +1,8 @@
+/*
+ * Chameleon Ultra - Bluetooth BLE control from ESP32 device
+ * by PivotChip Security
+ */
+ 
 #ifndef BLE_COMM_H
 #define BLE_COMM_H
 

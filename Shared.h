@@ -1,16 +1,14 @@
 /*
- * TARGET LIBRARY: NimBLE-Arduino v2.3.7
- * NOTE: Ensure this specific version is used.
- *
- * HISTORY:
- * - v171.0: Removed Bonding Wait. Auto-Setup logic.
- * - Flow: Connect -> Subscribe -> Ready -> Auto-Info & Mode Switch.
+ * Target Library: NimBLE-Arduino v2.3.7
+ * Chameleon Ultra - Bluetooth BLE control from ESP32 device
+ * by PivotChip Security
  */
+
 
 #ifndef SHARED_H
 #define SHARED_H
 
-#define DEBUG_MODE true
+#define DEBUG_MODE false
 
 #include <Arduino.h>
 #include <NimBLEDevice.h>

@@ -1,10 +1,6 @@
 /*
- * Chameleon Ultra - ASYNC STATE MACHINE (Modularized v172.0 - Payload Fix)
- *
- * FIXES:
- * - COMMAND: setDeviceMode now sends 1 byte payload.
- * - This fixes 0x60 status error.
- * - Enabies mode switching -> Enables Scanning.
+ * Chameleon Ultra - Bluetooth BLE control from ESP32 device
+ * by PivotChip Security
  */
 
 #include "Shared.h"
@@ -20,8 +16,8 @@ int retryCount = 0;
 const int MAX_RETRIES = 15;
 volatile bool authInProgress = false; 
 volatile unsigned long lastSecurityTime = 0;
-// --- UTILITIES ---
 
+// --- UTILITIES ---
 void logOutput(const String& msg, bool debug_bypass) { 
   if (debug_bypass == false || DEBUG_MODE) {
     Serial.print("[");
@@ -35,15 +31,27 @@ void logOutput(const String& msg, bool debug_bypass) {
 
 void processCommand(String cmd) {
   cmd.trim();
+  // BLE control - find
   if (cmd == "discover") {
     startScan();
-  } else if (cmd == "pair") {
-    startPair();
+  // BLE control - pair
+  } else if (cmd.startsWith("pair")) {
+    String param = cmd.substring(4); 
+    param.trim();
+    // Pair by User provided ID or with a default
+    if (param.length() > 0) {
+      connectToScannedDevice(param.toInt());
+    } else {
+      startPair();
+    }
+  // BLE control - forget paired
   } else if (cmd == "forget") {
     clearPairedDevice();
     NimBLEDevice::deleteAllBonds();
+  // BLE control - pin reset
   } else if (cmd == "clear bonds") { 
     clearChameleonBonds();
+  // BLE control - pin enable
   } else if (cmd.startsWith("pin_enable ")) {
     String pinStr = cmd.substring(11);
     uint32_t pin = pinStr.toInt();
@@ -51,43 +59,31 @@ void processCommand(String cmd) {
         logOutput("Error: PIN must be exactly 6 digits (000000-999999).");
     } else {
         logOutput("Configuring PIN: " + String(pin) + " and Enabling Security...");
-        
-        // 1. Save to NVS & Global State
+        // Save to NVS & Global State
         savePinConfig(pin, true);
-        
-        // 2. Configure Chameleon (if connected)
+        // Configure Chameleon (if connected)
         if (pClient && pClient->isConnected() && currentState == ST_READY) {
             logOutput(" -> Device Connected. Syncing settings...");
+            // Esp devices are iffy on stoping/switching BLE stack, so loads of delays
             setChameleonPIN(pin);
             delay(200);
             enableChameleonPairing(true);
             delay(200);
-            
-            // 3. Save Settings to Flash
-            saveSettings(); 
-            // FIX: Increased delay to 2000ms. Flash writes can pause the CPU on the target.
-            delay(2000); 
-
-            // Clear Chameleon's existing bonds disabled, it messes with settings
-            //clearChameleonBonds();
-            // FIX: Increased delay to 1500ms to ensure packet transmission before disconnect.
-            //delay(1500);
-            
-            //logOutput(" -> Settings Synced & Bonds Cleared. Disconnecting...");
-            
-            // 5. Clean up local state
-            //clearPairedDevice();          
-            //NimBLEDevice::deleteAllBonds(); 
-            //pClient->disconnect();        
+            saveSettings();
+            delay(200);
+            clearChameleonBonds(); 
+            // Large delay to - Flash writes can pause the CPU on the Chameleon
+            delay(2000);         
         } else {
             logOutput(" -> Device NOT Connected. Settings saved to NVS.");
             logOutput(" -> Please pair normally. Security will be applied on next connect.");
-            updateSecuritySettings(); // Apply to stack now
+            updateSecuritySettings(); 
         }
     }
-
+  // send raw - not useful; placeholder
   } else if (cmd.startsWith("send ")) {
     sendText(cmd.substring(5));
+  // Chameleon Scans
   } else if (cmd == "scan hf") {
     logOutput("Command: Scan High Frequency");
     sendText("hf search\r\n");
@@ -100,32 +96,48 @@ void processCommand(String cmd) {
     sendText("lf search\r\n");
     delay(2000); 
     logOutput("testing high frequency");
-    sendText("hf search\r\n"); 
+    sendText("hf search\r\n");
+  // Debug info (chameleon version) 
   } else if (cmd == "info") {
     logOutput("Command: Get Device Info");
     sendText("info");
+  // Chameleon modes
   } else if (cmd == "mode reader") {
     sendText("mode reader");
+  // Bluetooth device selection 
+  } else if (cmd.length() > 0 && isDigit(cmd.charAt(0))) {
+      int idx = cmd.toInt();
+      logOutput("Selecting device index: " + String(idx));
+      connectToScannedDevice(idx);
+  // Drop established Bluetooth connection
   } else if (cmd == "drop") {
     logOutput("Dropping.");
     if (pClient) pClient->disconnect();
     if (targetDevice) { delete targetDevice;
     targetDevice = nullptr; }
     currentState = ST_IDLE;
+  // List ESP console commands (this else if)
+  } else if (cmd == "help") {
+    logOutput("[BLE] : discover | pair      | drop    | forget | clear bonds | pin_enable 123456");
+    logOutput("[SCAN]: scan     | scan hf   | scan lf");
+    logOutput("[SYS] : info     | mode reader ");
   }
 }
 
 void setup() {
+  // Enable Serial Communications
   Serial.begin(115200);
   while (!Serial) {}
-
-  // Configure Boot Button (GPIO 0)
+  // Make Boot Button Execute Functions
   pinMode(0, INPUT_PULLUP);
-
+  // Ebable BLE
   initBLE();
-  logOutput("Ready. Commands: discover | pair | forget | scan | scan hf | scan lf | info | mode reader | drop | pin_enable 123456 | clear bonds");
-  
-  
+  // Output help
+  logOutput("Ready. Commands:");
+  logOutput("[BLE] : discover | pair      | drop    | forget | clear bonds | pin_enable 123456");
+  logOutput("[SCAN]: scan     | scan hf   | scan lf");
+  logOutput("[SYS] : info     | mode reader ");
+  // Debug mode will probe Chameleon info on connection
   if (hasStoredAddress && DEBUG_MODE) {
     logOutput("Boot: Triggering auto-connect scan...", true);
     triggerReScan();
@@ -133,15 +145,15 @@ void setup() {
 }
 
 void loop() {
+  // Read serial commands
   if (Serial.available()) processCommand(Serial.readStringUntil('\n'));
-
-  // Check Boot Button (Active LOW)
+  // Read BOOT button press 
   if (digitalRead(0) == LOW) {
       logOutput("[Button] Boot Key Pressed -> Triggering Scan...");
       processCommand("scan"); 
       delay(500); // Debounce to prevent double triggering
   }
-
+  // BLE stack management
   switch (currentState) {
     
     case ST_CONNECT_ATTEMPT: {
@@ -151,15 +163,12 @@ void loop() {
         currentState = ST_IDLE;
         break;
       }
-
       NimBLEScan* scan = NimBLEDevice::getScan();
       scan->stop();
       unsigned long stopWait = millis();
       while(scan->isScanning() && (millis() - stopWait < 2000)) { delay(10); }
-
       logOutput("     Debug: Waiting 250ms for radio idle...", true);
       delay(250); 
-
       if (pClient->isConnected()) {
         logOutput("     Debug: Client reports ALREADY CONNECTED.", true);
         logOutput(" -> Connect Accepted (Pre-existing). Settling...");
@@ -167,7 +176,6 @@ void loop() {
         stateTimer = millis();
         break;
       }
-
       String addr = targetDevice->getAddress().toString().c_str();
       logOutput("     Debug: Connecting to " + addr + " (Object Pointer)...", true);
       // Pointer-based Connect
@@ -176,7 +184,6 @@ void loop() {
          logOutput("     WARNING: Connect returned false, but Link is UP.", true);
          connected = true;
       }
-
       if (connected) {
         logOutput(" -> Connect Accepted. Settling...", true);
         currentState = ST_CONNECTED_PENDING;
@@ -206,8 +213,7 @@ void loop() {
 
     case ST_CONNECTED_PENDING: {
       if (millis() - stateTimer >= 3000) { 
-        if (pClient && pClient->isConnected()) {
-          
+        if (pClient && pClient->isConnected()) {         
           if (pClient->getConnInfo().isEncrypted()) {
              logOutput(" -> Security Auto-Established (Bonded).");
              currentState = ST_SECURITY_SETTLE; 
@@ -235,7 +241,6 @@ void loop() {
          }
          break;
       }
-
       if (pClient->isConnected() && pClient->getConnInfo().isEncrypted()) {
          logOutput(" -> Encryption Verified. Saving Pairing...");
          savePairedDevice(pClient->getPeerAddress());
@@ -280,39 +285,26 @@ void loop() {
       if (millis() - lastSecurityTime < 3000) {
         return;
       }
-
       stateTimer = millis();
       retryCount++;
-      
       logOutput(" -> Attempting Subscribe (" + String(retryCount) + ")...", true);
       bool subOk = false;
-      
       bool result = enableNotifications(subOk);
-      
       if (result && subOk) {
         logOutput(" -> Notifications ENABLED. Comm Link Open.", true);
-        
-        // --- FIX: Save Pairing on ANY Success ---
-        // This ensures "Just Works" connections are also saved to NVS.
         savePairedDevice(pClient->getPeerAddress());
-        // ----------------------------------------
-
         currentState = ST_READY;
         stateTimer = millis();
         retryCount = 0;
-         
         NimBLEDevice::getScan()->clearResults();
-         
         if (DEBUG_MODE){
           logOutput(" -> Auto-testing INFO command...", true);
           sendText("info");
           delay(500);
         }
-        
         logOutput(" -> Auto-switching to READER mode...", true);
         sendText("mode reader");
         logOutput("Connected...");
- 
       } else {
          logOutput(" -> Subscribe failed.", true);
          if (retryCount >= MAX_RETRIES) {
@@ -333,8 +325,11 @@ void loop() {
     }
 
     case ST_SCANNING:
+      // nothiung to do while scanning, but you can terminate scan early 
     case ST_RESCAN_TARGET:
+      // nothiung useful to do?
     case ST_IDLE:
+      // nothiung useful to do?
     default:
       break;
   }

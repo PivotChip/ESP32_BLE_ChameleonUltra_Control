@@ -1,3 +1,8 @@
+/*
+ * Chameleon Ultra - Bluetooth BLE control from ESP32 device
+ * by PivotChip Security
+ */
+ 
 #include "BleComm.h"
 
 // Define Globals for Comm
